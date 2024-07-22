@@ -6,12 +6,21 @@ import argparse
 import dataclasses
 import json
 import os
+import sys
 import torch
 import types
 
 import torch.nn.functional as F
 from megatron.global_vars import set_retro_args, get_retro_args
-from tools.retro.utils import get_args_path as get_retro_args_path
+
+# base_path = os.path.dirname(os.path.abspath(__file__))
+# tools_path = os.path.join(base_path, 'tools')
+# sys.path.append(tools_path)
+# from tools.retro.utils import get_args_path as get_retro_args_path
+
+def get_retro_args_path(workdir):
+    '''Argument copy stored within retro workdir.'''
+    return os.path.join(workdir, "args.json")
 
 from megatron.core.models.retro import RetroConfig
 from megatron.core.transformer import TransformerConfig

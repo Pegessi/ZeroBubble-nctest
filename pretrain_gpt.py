@@ -33,6 +33,9 @@ from megatron.core.models.gpt.gpt_layer_specs import (
     gpt_layer_with_transformer_engine_spec_moe
 )
 
+RECORD_MEM_SNAPSHOT = True if os.environ.get('RECORD_MEM_SNAPSHOT') == '1' else False
+snapshot_filename = os.environ.get('SNAP_FILE_NAME')
+
 def model_provider(pre_process=True, post_process=True) -> Union[GPTModel, megatron.model.GPTModel]:
     """Builds the model.
 
@@ -241,8 +244,25 @@ if __name__ == "__main__":
     # Temporary for transition to core datasets
     train_valid_test_datasets_provider.is_distributed = True
 
-    pretrain(train_valid_test_datasets_provider,
-             model_provider,
-             ModelType.encoder_or_decoder,
-             forward_step,
-             args_defaults={'tokenizer_type': 'GPT2BPETokenizer'})
+    from torch.distributed.elastic.multiprocessing.errors.handlers import get_error_handler
+    from torch.distributed.elastic.multiprocessing.errors import ChildFailedError, record
+    error_handler = get_error_handler()
+    error_handler.initialize()
+    try:
+        if RECORD_MEM_SNAPSHOT:
+                torch.cuda.memory._record_memory_history()
+        pretrain(train_valid_test_datasets_provider,
+                model_provider,
+                ModelType.encoder_or_decoder,
+                forward_step,
+                args_defaults={'tokenizer_type': 'GPT2BPETokenizer'})
+    except ChildFailedError as e:
+        _, failure = e.get_first_failure()
+        error_handler.dump_error_file(failure.error_file, failure.exitcode)
+        raise
+    except Exception as e:
+        print('[Exception]', str(e))
+        raise
+    if RECORD_MEM_SNAPSHOT:
+        local_rank = torch.distributed.get_rank()
+        torch.cuda.memory._dump_snapshot(snapshot_filename+'_'+str(local_rank)+".pickle")

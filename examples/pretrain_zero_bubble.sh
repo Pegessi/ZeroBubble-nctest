@@ -9,12 +9,24 @@ DIR=`pwd`
 DATETIME=`date +'date_%y-%m-%d_time_%H-%M-%S'`
 mkdir -p $DIR/logs
 
-DATASET="/tmp/zb_sample_dataset/dataset/c4_text_document"
+# export CUDA_VISIBLE_DEVICES=3,5,6,7
+DATASET="/data/wangzehua/dataset/zb_sample_dataset/dataset/c4_text_document"
 
-if [ ! -e "$DATASET"".idx" ]; then
-  wget https://huggingface.co/datasets/ufotalent/zero_bubble_sample_dataset/resolve/main/zb_sample_dataset.tar.gz
-  tar -xvf zb_sample_dataset.tar.gz -C /tmp
-fi
+export ZERO_BUBBLE_V_SCHEDULE=1
+export RECORD_MEM_SNAPSHOT=1
+# export SNAP_FILE_NAME="pretrain_gpt_350M_mb8_pp2_fixtmp_withdrop"
+export SNAP_FILE_NAME="pretrain_zbv1_gpt_tp1_ps4"
+
+MAX_ITERS=10
+# PP是固定的？
+PP_SCALE=4
+TP_SIZE=1
+GPUS_PER_NODE=8
+
+# if [ ! -e "$DATASET"".idx" ]; then
+#   wget https://huggingface.co/datasets/ufotalent/zero_bubble_sample_dataset/resolve/main/zb_sample_dataset.tar.gz
+#   tar -xvf zb_sample_dataset.tar.gz -C /tmp
+# fi
 
 # Running locally
 if [ -z "$WORLD_SIZE" ]; then
@@ -26,6 +38,7 @@ fi
 
 if [ -z "$GPUS_PER_NODE" ]; then
   GPUS_PER_NODE=$(nvidia-smi --list-gpus | wc -l)
+  # GPUS_PER_NODE=8
 fi
 
 if [ -z "$EXIT_INTERVAL" ]; then
@@ -36,7 +49,7 @@ WORLD_SIZE_IN_GPUS=$(( $WORLD_SIZE * $GPUS_PER_NODE ))
 
 if [ -z "$PIPELINE_SIZE" ]; then
   PIPELINE_SIZE=$(( $WORLD_SIZE_IN_GPUS))
-  LAYERS=$(( $PIPELINE_SIZE * 4 - 2))
+  LAYERS=$(( $PIPELINE_SIZE * $PP_SCALE - 2))
   MICRO_BATCH_SIZE=1
   GLOBAL_BATCH_SIZE=$(( $PIPELINE_SIZE * 3 * $MICRO_BATCH_SIZE ))
   HIDDEN_SIZE=4096
@@ -61,6 +74,9 @@ if [ -z "$TP_SIZE" ]; then
   TP_SIZE=1
 fi
 
+  # --train-samples 146484375 \
+  # --lr-decay-samples 126953125 \
+  # --lr-warmup-samples 183105 \
 options=" \
   --tensor-model-parallel-size $TP_SIZE \
   --pipeline-model-parallel-size $PIPELINE_SIZE \
@@ -72,18 +88,16 @@ options=" \
   --max-position-embeddings 2048 \
   --micro-batch-size $MICRO_BATCH_SIZE \
   --global-batch-size $GLOBAL_BATCH_SIZE \
-  --train-samples 146484375 \
-  --lr-decay-samples 126953125 \
-  --lr-warmup-samples 183105 \
   --lr 6.0e-5 \
   --min-lr 6.0e-6 \
   --lr-decay-style cosine \
+  --train-iters $MAX_ITERS \
   --log-interval 10 \
-  --eval-iters 40 \
+  --eval-iters 5 \
   --eval-interval $EVAL_INTERVAL \
   --data-path ${DATASET} \
   --tokenizer-type GPTSentencePieceTokenizer \
-  --tokenizer-model /tmp/zb_sample_dataset/tokenizers/tokenizer.model \
+  --tokenizer-model /data/wangzehua/dataset/zb_sample_dataset/tokenizers/tokenizer.model \
   --split 98,2,0 \
   --clip-grad 8.0 \
   --weight-decay 0.1 \
